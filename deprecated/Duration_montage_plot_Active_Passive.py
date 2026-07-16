@@ -1,12 +1,8 @@
 import os
 import pandas as pd
-import matplotlib.pyplot as plt
 import numpy as np
 import os
-from scipy.stats import friedmanchisquare, kruskal
-from scikit_posthocs import posthoc_conover_friedman, posthoc_dunn
 import matplotlib.pyplot as plt
-import seaborn as sns
 
 # Путь к папке с данными
 data_dir = r"C:\Users\msasha\Desktop\dry_electrodes\Эксперимент"
