@@ -42,6 +42,26 @@ def artifacts_share_into_df(results):
 
     return df
 
+def combine_rest_data(results):
+    """
+    Function to combine rest data: eyes open & eyes closed
+    """
+    combined_results = {}
+    for headset in results:
+        combined_results[headset] = {}
+        # Combine eyes_open и eyes_closed
+        rest_data = []
+        for recording in ['eyes_open', 'eyes_closed']:
+            if recording in results[headset]:
+                rest_data.extend(results[headset][recording])
+        rest_data_clean = [x for x in rest_data if not np.isnan(x)]
+        if rest_data_clean:
+            combined_results[headset]['rest'] = rest_data_clean
+        if 'cycling' in results[headset]:
+            combined_results[headset]['cycling'] = results[headset]['cycling']
+
+    return combined_results
+
 def detect_artifacts_threshold(epochs, threshold):
     """
     Detects artifacts using amp threshold.
@@ -123,7 +143,7 @@ def detect_artifacts_diff(epochs, diff_threshold):
     bad_epochs = max_diffs > diff_threshold
     return bad_epochs, max_diffs
 
-def plot_share_artifacts(df, aggtype, mapping, base):
+def plot_share_artifacts(df, aggtype, mapping, base, rest):
     """
     Plots artifact share in % over recordings/headset type
     """
@@ -164,7 +184,62 @@ def plot_share_artifacts(df, aggtype, mapping, base):
 
     # Histogram by Mean_Share_Artifacts для Recording
     fig, ax = plt.subplots(figsize=(16, 12))
+    colors = ['lightblue', 'lightgreen', 'lightcoral', 'wheat', 'plum']
 
+    if rest:
+        recording = 'rest'
+        mask = df['Recording'] == recording
+        df_rest = df[mask]
+
+        means = []
+        stds = []
+        sems = []
+        labels = []
+        for b in base:
+            mask_headset = df_rest['Headset'] == b
+            df_headset = df_rest[mask_headset]
+
+            subject_columns = [col for col in df_headset.columns if col.startswith('Subject_')]
+            values = df_headset[subject_columns].values.flatten()
+            values_clean = values
+
+            if len(values_clean) > 0:
+                mean_val = np.mean(values_clean)
+                std_val = np.std(values_clean, ddof=1)  # ddof=1 для несмещённой оценки
+                sem_val = std_val / np.sqrt(len(values_clean))  # Стандартная ошибка среднего
+
+                means.append(mean_val)
+                stds.append(std_val)
+                sems.append(sem_val)
+                labels.append(mapping[b])
+
+        bars = ax.bar(
+            range(len(labels)),
+            means,
+            yerr=sems,
+            color=colors[:len(labels)],
+            edgecolor='darkblue',
+            alpha=0.7,
+            capsize=10,
+            error_kw={
+                'ecolor': 'black',
+                'capsize': 10,
+                'elinewidth': 3
+            },
+            linewidth=1
+        )
+        for bar, mean, sem in zip(bars, means, sems):
+            if mean > 0:
+                ax.text(
+                    bar.get_x() + bar.get_width() / 2,
+                    mean + sem + max(sems) * 0.05,  # отступ от вершины уса
+                    f'{mean:.1f}%',
+                    ha='center',
+                    va='bottom',
+                    fontsize=20,
+                    fontweight='bold',
+                    color='darkblue'
+                )
     if aggtype == 'Recording':
         bars = ax.bar(
             range(len(ordered_df)),
@@ -176,20 +251,20 @@ def plot_share_artifacts(df, aggtype, mapping, base):
             capsize=5,
             linewidth=1
         )
-    if aggtype == 'Headset':
-        colors = ['lightblue', 'lightgreen', 'lightcoral', 'wheat', 'plum']
+    if aggtype == 'Headset' and rest == 0:
         bars = ax.bar(
                 range(len(ordered_df)),
-                ordered_df['mean_artifacts'],  # высота столбцов — средние значения
-                yerr=ordered_df['sem_artifacts'],  # планки ошибок — стандартная ошибка среднего
-                color=colors[:len(ordered_df)],  # разные цвета для каждой гарнитуры
+                ordered_df['mean_artifacts'],
+                yerr=ordered_df['sem_artifacts'],
+                color=colors[:len(ordered_df)],
                 edgecolor='darkblue',
                 alpha=0.7,
                 capsize=5,
                 linewidth=1
         )
-    for bar, mean, sem in zip(bars, ordered_df['mean_artifacts'], ordered_df['sem_artifacts']):
-        ax.text(
+    if rest == 0:
+        for bar, mean, sem in zip(bars, ordered_df['mean_artifacts'], ordered_df['sem_artifacts']):
+            ax.text(
                 bar.get_x() + bar.get_width() / 2,
                 mean + grouped_by['sem_artifacts'].max() * 0.05,
                 f'{mean:.1f}%',
@@ -198,7 +273,7 @@ def plot_share_artifacts(df, aggtype, mapping, base):
                 fontsize=20,
                 fontweight='bold',
                 color='darkblue'
-        )
+            )
 
     ax.set_ylim(0, 100)
 
@@ -214,7 +289,7 @@ def plot_share_artifacts(df, aggtype, mapping, base):
 
     plt.tight_layout()
 
-    plt.savefig(os.path.join(output_pics_dir, f'mean_artifacts_by_{aggtype}.svg'), dpi=300, bbox_inches='tight')
+    plt.savefig(os.path.join(output_pics_dir, f'mean_artifacts_by_{aggtype}_rest_{rest}.svg'), dpi=300, bbox_inches='tight')
     plt.close()
 
     print(f'mean_artifacts_by_{aggtype}.svg saved in: {output_pics_dir}')
