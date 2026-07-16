@@ -5,4 +5,6 @@ Dry EEG active / passive + types of sensors Brush Flex / Brush Medium
 
 1.rm_artifacts  -- does the preprocessing with data cleaning
 
-2.
+2. Num_epochs_removed.py -- plots share of artifacts in headsets and recording types
+
+# requirements!
