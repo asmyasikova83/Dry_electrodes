@@ -1,9 +1,13 @@
 import os
 import mne
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
+import matplotlib.ticker as ticker
 import numpy as np
 import pandas as pd
 from scipy import stats
+from statsmodels.stats.multitest import multipletests
+from scipy.stats import ttest_rel
 import config as cfg
 import warnings
 warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -62,6 +66,52 @@ def combine_rest_data(results):
 
     return combined_results
 
+def compute_psds(base, ):
+    """
+    Function to compute psds
+    """
+    psds = []
+    for i, b in enumerate(base):
+        filename = f'{b}_eeg.fif'
+        print(f'processing {filename}')
+        path_fif = os.path.join(cfg.evoked_dir, filename)
+        print(path_fif)
+        try:
+            evokeds = mne.read_evokeds(path_fif)[0]
+            print(evokeds)
+
+            evokeds_data = evokeds.get_data()
+            evokeds_mean_data = np.mean(evokeds_data, axis=0)  # shape: (n_times,)
+
+            # Into (1, n_times)
+            evokeds_mean_data_reshaped = evokeds_mean_data.reshape(1, -1)
+
+            info_single_channel = mne.create_info(
+                ch_names=['Average'],
+                sfreq=evokeds.info['sfreq'],
+                ch_types=['eeg']
+            )
+
+            evokeds_mean_ch = mne.EvokedArray(
+                data=evokeds_mean_data_reshaped,
+                info=info_single_channel,
+                tmin=evokeds.tmin,
+                comment=f"{b} Average Chan"
+            )
+
+            # Вычисляем PSD с ограничением по частоте
+            psd = evokeds_mean_ch.compute_psd(fmin=cfg.fmin, fmax=cfg.fmax)
+            psds.append(psd)
+
+        except (OSError, FileNotFoundError):
+            print(f'This file does not exist: {path_fif}')
+            continue  # пропускаем, если файл не найден
+        except Exception as e:
+            print(f'Error reading {path_fif}: {e}')
+            continue
+
+    return psds
+
 def detect_artifacts_threshold(epochs, threshold):
     """
     Detects artifacts using amp threshold.
@@ -104,6 +154,59 @@ def detect_artifacts_trend(epochs, trend_threshold):
     # Отмечаем эпохи с наклоном > порога
     bad_epochs = trends > trend_threshold
     return bad_epochs, trends
+
+def do_ttest(base, psd_data_list, freqs):
+    """
+    Function to perform ttest
+    """
+    print("\n" + "=" * 50)
+    print("СТАТИСТИЧЕСКИЙ АНАЛИЗ: T‑ТЕСТ МЕЖДУ ГАРНИТУРАМИ")
+    print("=" * 50)
+
+    # Выбираем первую гарнитуру как контрольную 'wet'
+    control_idx = 0
+    control_name = base[control_idx]
+    control_data = psd_data_list[control_idx]
+
+    print(f"\nКонтрольная гарнитура: {control_name}")
+    print(f"Сравниваем с остальными гарнитурами:\n")
+
+    # Проводим t‑тест по всем частотам между контрольной и остальными гарнитурами
+    t_stats_all = []
+    p_values_all = []
+    significant_freqs_all = []
+
+    test_name = base
+    test_data = np.vstack(psd_data_list)
+
+    # T‑тест для каждой частоты (зависимые выборки)
+    t_stats = []
+    p_values = []
+    control_data = control_data[np.newaxis]
+    t_stat, p_val = ttest_rel(
+            control_data,
+            test_data,
+            axis=0
+    )
+    t_stats.append(t_stat)
+    p_values.append(p_val)
+    p_values = np.squeeze(p_values)
+
+    # p_values = p_values[np.newaxis]
+    reject, pvals_corrected, _, _ = multipletests(
+            p_values, alpha=0.05, method='fdr_bh'
+    )
+
+    significant_freqs = freqs[reject]
+    significant_pvals = pvals_corrected[reject]
+
+    t_stats_all.append(t_stats)
+    p_values_all.append(pvals_corrected)
+    significant_freqs_all.append(significant_freqs)
+
+    print('significant_freqs_all', significant_freqs_all)
+
+    return t_stats_all, p_values_all, significant_pvals, pvals_corrected, significant_freqs_all
 
 def plot_trend_detection(epochs, epoch_idx, channel_idx=0):
     """Shows trend for each channel and epoch."""
@@ -293,6 +396,102 @@ def plot_share_artifacts(df, aggtype, mapping, base, rest):
     plt.close()
 
     print(f'mean_artifacts_by_{aggtype}.svg saved in: {output_pics_dir}')
+
+def plot_spectra(psds, base, headset, colors):
+    """
+    Function that plots spectra
+    """
+    # Создаём график для наложения всех спектров
+    fig, ax = plt.subplots(figsize=(12, 8))
+
+    # Список для хранения данных PSD в мкВ²/Гц
+    psd_data_list = []
+
+    # Draw spectra
+    for i, psd in enumerate(psds):
+        # Извлекаем частоты и данные PSD
+        freqs = psd.freqs
+        psd_data_V2_per_Hz = psd.get_data().squeeze()  # В²/Гц
+        psd_data_uV2_per_Hz = psd_data_V2_per_Hz * 1e12  # мкВ²/Гц
+
+        # Сохраняем данные для статистического анализа
+        psd_data_list.append(psd_data_uV2_per_Hz)
+
+        if headset:
+            ax.plot(
+                freqs,
+                psd_data_uV2_per_Hz,
+                label=cfg.display_headsets[i],
+                color=colors[i],
+                linewidth=2.0,
+                alpha=0.9
+            )
+        else:
+            ax.plot(
+                freqs,
+                psd_data_uV2_per_Hz,
+                label=cfg.display_recordings[i],
+                color=colors[i],
+                linewidth=2.0,
+                alpha=0.9
+            )
+
+    legend_ranges = [
+        Line2D([0], [0], color=(0.2, 0.9, 0.6), alpha=0.3, lw=10, label='Альфа (8–12 Гц)'),
+        Line2D([0], [0], color='gray', alpha=0.2, lw=10, label='Бета (13–30 Гц)')
+    ]
+
+    # ЗАЛИВКА ДИАПАЗОНОВ ЧАСТОТ (без label — чтобы не дублировать в легенде)
+    ax.axvspan(8, 13, alpha=0.3, color=(0.2, 0.9, 0.6), label='_nolegend_')
+    ax.axvspan(13, 30, alpha=0.2, color='gray', label='_nolegend_')
+
+    # Создаём легенду для гарнитур (основная легенда)
+    # Предположим, что линии графиков уже построены и имеют корректные метки
+    legend_garnetures = ax.legend(
+        fontsize=18,
+        # title='Типы гарнитур',
+        # title='Passive_Medium',
+        title_fontsize=20,
+        loc='upper right',  # расположение в левом верхнем углу
+        frameon=True,
+        fancybox=True,
+        shadow=True
+    )
+
+    # Добавляем первую легенду обратно на график
+    ax.add_artist(legend_garnetures)
+    ax.set_yscale('log')
+    # Настраиваем внешний вид графика
+    # Добавляем легенду элементов к графику
+
+    ax.set_xlabel('Гц', fontsize=18)
+    ax.set_ylabel('Cпектральная плотность мощности (PSD)', fontsize=18)
+
+    ax.set_xlim(cfg.fmin, cfg.fmax)  # ось X: от 1 до 40 Гц
+    ax.set_ylim(0.01, 1000)  # ось Y: подберите под свои данные
+    # Настраиваем формат меток: отображаем абсолютные значения
+    ax.yaxis.set_major_formatter(ticker.FuncFormatter(
+        lambda val, pos: f'{val:.0f}' if val >= 1 else f'{val:.2f}'
+    ))
+
+    # Метки на осях (деления)
+    ax.tick_params(axis='both', which='major', labelsize=18)
+
+    # Добавляем сетку для лучшей читаемости
+    ax.grid(True, alpha=0.3)
+
+    # Обязательно добавляем первую легенду обратно через add_artist()
+    ax.add_artist(legend_garnetures)
+
+    plt.tight_layout()
+    plt.show()
+
+    # save_path = os.path.join(plots_dir, f'recordings_psd_averaged_5_passive_old.svg')
+    save_path = os.path.join(output_pics_dir, f'spectra_{base}_psd_averaged_N{cfg.N}.svg')
+    fig.savefig(save_path, dpi=cfg.dpi, bbox_inches='tight')
+    print(f"Spectra plot is saved: {save_path}")
+
+    return freqs, psd_data_list
 
 def  read_artifacts(subjects, headsets_base, recordings_base):
     """

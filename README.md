@@ -7,6 +7,6 @@ Dry EEG active / passive + types of sensors Brush Flex / Brush Medium
 
 2.compute_plot_artifacts_share.py -- plots share of artifacts in headsets and recording types
 
-3. 
+3.compare_psds.py -- plots spectra of headsets / recording types
 
-# requirements!
+## requirements!

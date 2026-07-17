@@ -1,7 +1,11 @@
+import mne
+import os
 
+# Dirs
 data_dir = r'\\MCSSERVER\DB Temp\physionet.org\files\dry_electrodes\epochs'
+evoked_dir = r'\\MCSSERVER\DB Temp\physionet.org\files\dry_electrodes\evoked'
 output_pics_dir = r'\\MCSSERVER\DB Temp\physionet.org\files\dry_electrodes\epochs\pics'
-
+os.makedirs(output_pics_dir, exist_ok=True)
 
 # Rename headsets
 headsets_mapping = {
@@ -13,6 +17,7 @@ headsets_mapping = {
 }
 
 headsets_base = ['wet', 'active_new', 'active_old', 'passive_new', 'passive_old']
+display_headsets = [headsets_mapping[key] for key in headsets_base]
 recordings_base = ['eyes_open', 'eyes_closed', 'cycling']
 
 # Rename recordings
@@ -23,3 +28,10 @@ recordings_mapping = {
     }
 display_recordings = [recordings_mapping[key] for key in recordings_base]
 subjects = ['S00', 'S01', 'S03', 'S04', 'S05']
+
+# Plots
+dpi = 300
+fmin = 1
+fmax = 40
+
+N = 5
