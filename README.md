@@ -7,6 +7,10 @@ Dry EEG active / passive + types of sensors Brush Flex / Brush Medium
 
 2.compute_plot_artifacts_share.py -- plots share of artifacts in headsets and recording types
 
-3.compare_psds.py -- plots spectra of headsets / recording types
+3.averaging_over_recordings_in_subj.py (f'{subject}_{headset}_eeg.fif') --> averaging_over_subj_in_headset.py (f'{headset}_eeg.fif')
+
+4.averaging_pver_headsets_in_subj.py  (f'{subject}_{recording}_eeg.fif') --> averaging_over_subj_in_recording.py (f'{recording}_eeg.fif')
+
+5.compare_psds.py -- plots spectra of headsets / recording types
 
 ## requirements!
