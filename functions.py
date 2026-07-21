@@ -66,7 +66,7 @@ def combine_rest_data(results):
 
     return combined_results
 
-def compute_psds(base, ):
+def compute_psds(base):
     """
     Function to compute psds
     """
@@ -120,10 +120,11 @@ def detect_artifacts_threshold(epochs, threshold):
 
     # Проверяем абсолютную амплитуду по всем каналам и отсчётам
     max_amps = np.max(np.abs(data), axis=(1, 2))  # макс. амплитуда для каждой эпохи
-
+    print('max_amps', max_amps)
     # Отмечаем эпохи, где макс. амплитуда > порога
     bad_epochs = max_amps > threshold
     check = max_amps[0] - threshold
+    print(check)
     return bad_epochs, max_amps
 
 
@@ -138,7 +139,7 @@ def detect_artifacts_trend(epochs, trend_threshold):
 
     # Into s
     times = np.arange(n_times) / sfreq
-    print('times', times)
+
     trends = np.zeros(n_epochs)
 
     for i in range(n_epochs):
@@ -153,6 +154,7 @@ def detect_artifacts_trend(epochs, trend_threshold):
 
     # Отмечаем эпохи с наклоном > порога
     bad_epochs = trends > trend_threshold
+
     return bad_epochs, trends
 
 def do_ttest(base, psd_data_list, freqs):
