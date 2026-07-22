@@ -1,21 +1,18 @@
 import mne
+import numpy  as np
 import os
-import numpy as np
 import config as cfg
+from functions import average_and_save_evoked
 import warnings
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
-headsets_base = cfg.headsets_base
-subjects = ['S00', 'S01', 'S03', 'S04','S05']
 evoked_dir = cfg.evoked_dir
 
-for headset in headsets_base:
+for headset in cfg.headsets_base:
     subj_data = []
-    for subject in subjects:
-        subject_headset = subject + '_' + headset
+    for subject in cfg.subjects:
         filename = f'{subject}_{headset}_eeg.fif'
-        path_fif = os.path.join(cfg.evoked_dir, filename)
-        print(path_fif)
+        path_fif = os.path.join(evoked_dir, filename)
         try:
             evokeds = mne.Evoked(path_fif)
             data = evokeds.get_data()  # ( n_channels, n_times)
@@ -23,6 +20,7 @@ for headset in headsets_base:
             subj_data.append(data)
         except (OSError):
             print('This file not exist')
+    #average_and_save_evoked(evokeds, subj_data, [], headset)
 
     # (5, 4, 1001) - 5 subjects, 5 chans, 1001 times
     stacked_data = np.stack(subj_data, axis=0)
