@@ -9,6 +9,7 @@ spectra_dir = r'\\MCSSERVER\DB Temp\msasha\Dry_EEG\epochs\spectra_pic'
 evoked_dir = r'\\MCSSERVER\DB Temp\msasha\Dry_EEG\evoked'
 epochs_dir  = r'\\MCSSERVER\DB Temp\msasha\Dry_EEG\epochs'
 output_pics_dir = r'\\MCSSERVER\DB Temp\msasha\Dry_EEG\epochs\pics'
+output_path_random_table = r'C:\Users\msasha\Desktop\dry_electrodes\Эксперимент\experiment_data_day_{}.xlsx'
 os.makedirs(epochs_artifacts_dir, exist_ok=True)
 os.makedirs(spectra_dir, exist_ok=True)
 os.makedirs(evoked_dir, exist_ok=True)
