@@ -5,22 +5,12 @@ import config as cfg
 import warnings
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
-
-dir = cfg.data_dir
-epochs_dir  = cfg.epochs_dir
-evoked_dir = cfg.evoked_dir
-
-headsets_base = cfg.headsets_base
-recordings_base =cfg.recordings_base
-
-subjects = cfg.subjects
-
-for subject in subjects:
-    for headset in headsets_base:
+for subject in cfg.subjects:
+    for headset in cfg.headsets_base:
         rec_data = []
-        for recording in recordings_base:
+        for recording in cfg.recordings_base:
             subject_headset = subject + '_' + headset
-            extended_epochs_dir = os.path.join(epochs_dir, subject_headset)
+            extended_epochs_dir = os.path.join(cfg.epochs_dir, subject_headset)
             filename = f'{subject}_{headset}_{recording}_eeg.fif'
             path_fif = os.path.join(extended_epochs_dir, filename)
             print(path_fif)
@@ -50,6 +40,6 @@ for subject in subjects:
             comment=f"{subject}_{headset}"
         )
 
-        save_path_fif = os.path.join(evoked_dir, f'{subject}_{headset}_eeg.fif')
+        save_path_fif = os.path.join(cfg.evoked_dir, f'{subject}_{headset}_eeg.fif')
         evoked.save(save_path_fif, overwrite=True)
 

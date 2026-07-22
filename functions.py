@@ -13,8 +13,27 @@ import math
 import warnings
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
-data_dir = cfg.data_dir
+data_dir = cfg.epochs_artifacts_dir
 output_pics_dir = cfg.output_pics_dir
+
+def add_annotations_to_epochs(epochs):
+    """
+    Function that adds annotations to epochs
+    """
+    n_epochs = len(epochs)
+    onset_times = np.arange(n_epochs) * cfg.duration
+
+    n_epochs = len(epochs)
+    # Make an annotation for the epoched data
+    annotations = mne.Annotations(
+    onset=onset_times,
+    duration=np.zeros(n_epochs),  # Метки без длительности (точки)
+    description=['epoch_start'] * n_epochs  # Одинаковая метка
+    )
+
+    epochs.set_annotations(annotations)
+
+    return epochs
 
 def artifacts_share_into_df(results):
     """
@@ -156,11 +175,10 @@ def detect_artifacts_threshold(epochs, threshold):
 
     # Проверяем абсолютную амплитуду по всем каналам и отсчётам
     max_amps = np.max(np.abs(data), axis=(1, 2))  # макс. амплитуда для каждой эпохи
-    print('max_amps', max_amps)
     # Отмечаем эпохи, где макс. амплитуда > порога
     bad_epochs = max_amps > threshold
     check = max_amps[0] - threshold
-    print(check)
+
     return bad_epochs, max_amps
 
 
@@ -192,6 +210,35 @@ def detect_artifacts_trend(epochs, trend_threshold):
     bad_epochs = trends > trend_threshold
 
     return bad_epochs, trends
+
+def detect_and_remove_bad_epochs(epochs):
+    """
+    Detects artifacts using amp threshold.
+    """
+    # Artifacts as in https://pubmed.ncbi.nlm.nih.gov/30893791/
+    bad_epochs_amp, amp_values = detect_artifacts_threshold(epochs, cfg.AMP_THRESHOLD)
+    print(f"Artifacts - amplitude: {np.sum(bad_epochs_amp)} эпох")
+    bad_epochs_trend, trend_values = detect_artifacts_trend(epochs, cfg.TREND_THRESHOLD)
+    print(f"Artifacts - trend: {np.sum(bad_epochs_trend)} эпох")
+    # plot_trend_detection(epochs, 10, 5)
+    bad_epochs_diff, diff_values = detect_artifacts_diff(epochs, cfg.DIFF_THRESHOLD)
+    print(f"Artifacts - difference between 2 adjacent time points: {np.sum(bad_epochs_diff)} эпох")
+
+    # Объединение всех критериев: эпоха помечается как артефакт, если хотя бы один метод её выявил
+    bad_epochs_combined = bad_epochs_amp | bad_epochs_trend | bad_epochs_diff
+    total_bad = np.sum(bad_epochs_combined)
+    print(f"Total artifactual epochs (combined): {total_bad} epochs")
+
+    # Получение индексов плохих эпох
+    bad_indices = np.where(bad_epochs_combined)[0]
+
+    if len(bad_indices) > 0:
+        print(f"Bad_indices: {bad_indices}")
+    else:
+        print("No bad_indices")
+    epochs.drop(bad_indices, reason='artifact_detection')
+
+    return bad_indices,epochs
 
 def do_ttest(base, psd_data_list, freqs):
     """
@@ -245,6 +292,21 @@ def do_ttest(base, psd_data_list, freqs):
     print('significant_freqs_all', significant_freqs_all)
 
     return t_stats_all, p_values_all, significant_pvals, pvals_corrected, significant_freqs_all
+
+def make_names(subject, headset, recording):
+    """
+    Function to create fnames and fdirs
+    """
+    subject_headset = subject + '_' + headset
+    extended_dir = os.path.join(cfg.project_dir, subject_headset)
+
+    dir_name = f"{subject}_{headset}"
+    dir_path = os.path.join(cfg.epochs_dir, dir_name)
+    os.makedirs(dir_path, exist_ok=True)
+
+    full_path = os.path.join(extended_dir, f'{subject}_{headset}_{recording}.bdf')
+
+    return full_path,dir_name
 
 def plot_trend_detection(epochs, epoch_idx, channel_idx=0):
     """Shows trend for each channel and epoch."""
@@ -526,7 +588,70 @@ def plot_spectra(psds, base, headset, colors):
 
     return freqs, psd_data_list
 
-def  read_artifacts(subjects, headsets_base, recordings_base):
+def plot_subject_psd(interactive, epochs,subject, headset, recording):
+    """
+    Function that plots and saves individual spectra
+    """
+    if interactive:
+        epochs.plot(block=True)
+        epochs.compute_psd().plot()
+
+    psd = epochs.compute_psd(method='welch')
+
+    # plt.show()  # принудительно показываем график
+
+    fig = psd.plot(average=True, amplitude=False)
+    filename = f'{subject}_{headset}_{recording}.png'
+    save_path = os.path.join(cfg.spectra_dir, filename)
+
+    fig.suptitle(f'{subject}_{headset}_{recording}', fontsize=14, fontweight='bold')
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    plt.close(fig)  # закрываем фигуру, освобождаем память
+
+def preprocessing(full_path):
+    """
+    Function that loads and preprocesses the data
+    """
+    raw = mne.io.read_raw_bdf(full_path, preload=True)
+
+    # Pick only the specified channels
+    raw.pick_channels(cfg.channels_of_interest, ordered=True)
+
+    # Get the data from the Raw object
+    data = raw.get_data()  # data shape: (n_channels, n_samples)
+
+    # Remove the mean of each channel
+    data_mean_removed = data - np.mean(data, axis=1, keepdims=True)
+
+    # Update the raw object with the mean-corrected data
+    raw._data = data_mean_removed
+
+    raw.notch_filter(
+        freqs=np.arange(50, 150, 50),  # частоты для фильтрации: 50, 100, 150, 200, 250 Гц
+        method='fir',  # метод: FIR‑фильтр
+        filter_length='auto',  # автоматическая длина фильтра
+        phase='zero',  # нулевая фаза (без сдвига сигнала)
+        fir_window=cfg.fir_window,  # окно Хэмминга
+        fir_design=cfg.filter_type  # дизайн FIR‑фильтра
+    )
+
+    # Apply a high-pass filter at 0.5 Hz using a two-way FIR filter
+    raw.filter(l_freq=cfg.fmin, h_freq=cfg.fmax, fir_design=cfg.filter_type)
+
+    # Create epochs: Use arbitrary epochs since no event markers exist
+    events = mne.make_fixed_length_events(raw, duration=cfg.duration, overlap=cfg.overlap)
+    epochs = mne.Epochs(
+        raw,
+        events,
+        tmin=0,
+        tmax=cfg.duration,
+        baseline=None,
+        detrend=1,
+        preload=True
+    )
+    return epochs, events
+
+def read_artifacts(subjects, headsets_base, recordings_base):
     """
     Function to read artifacts from .txt and combine them in results
     """
@@ -549,3 +674,62 @@ def  read_artifacts(subjects, headsets_base, recordings_base):
                 results[headset][recording] = share_artifact_rec
 
     return results
+
+def save_epochs_in_fif(epochs, subject, headset, recording):
+    """
+    Function that saves epochs in fif
+    """
+    subject_headset = subject + '_' + headset
+    extended_epochs_dir = os.path.join(cfg.epochs_dir, subject_headset)
+    save_path_fif = os.path.join(extended_epochs_dir, f'{subject}_{headset}_{recording}_eeg.fif')
+    epochs.save(save_path_fif, overwrite=True)
+
+    print(f"Epoched data saved as fif with events to: {save_path_fif}")
+
+def write_num_artifacts(bad_indices, subject,headset, recording):
+    """
+    Function to write the number of dropped artifacts
+    """
+    num_artifacts = []
+    num_artifacts.append(len(bad_indices))
+
+    filename = f'{subject}_{headset}_{recording}_num_artifacts.txt'
+    save_path = os.path.join(cfg.epochs_artifacts_dir, filename)
+
+    with open(save_path, 'w') as f:
+        for count in num_artifacts:
+            f.write(f"{count}\n")
+
+    return num_artifacts
+
+def write_num_epochs(events, subject, headset, recording):
+    """
+    Function to write the total number of epochs
+    """
+    num_epochs = []
+    num_epochs.append(len(events))
+
+    filename = f'{subject}_{headset}_{recording}_num_epochs.txt'
+    save_path = os.path.join(cfg.epochs_artifacts_dir, filename)
+
+    with open(save_path, 'w') as f:
+        for count in num_epochs:
+            f.write(f"{count}\n")
+
+    return num_epochs
+
+def write_share_artifacts(num_epochs, num_artifacts, subject, headset, recording):
+    """
+    Function to write the total number of epochs
+    """
+
+    filename = f'{subject}_{headset}_{recording}_share_artifacts.txt'
+    save_path = os.path.join(cfg.epochs_artifacts_dir, filename)
+
+    with open(save_path, 'w') as f:
+        for count_epo in num_epochs:
+            for count_arti in num_artifacts:
+                share_artifacts = round(count_arti/count_epo * 100, 2)
+                f.write(f"{share_artifacts}\n")
+
+    return share_artifacts
