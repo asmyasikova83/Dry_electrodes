@@ -47,10 +47,11 @@ def artifacts_share_into_df(results):
 
     return df
 
-def average_and_save_evoked(evokeds, subj_data, avtype):
+def average_and_save_evoked(evokeds, subj_data, subject, avtype):
     """
     Function to calculate average over epochs and save evoked data
     """
+    # TODO
     # Averaging over epochs (axis = 0)
     stacked_data = np.stack(subj_data, axis=0)
     mean_data = np.mean(stacked_data, axis=0)
@@ -59,11 +60,11 @@ def average_and_save_evoked(evokeds, subj_data, avtype):
         data=mean_data,
         info=evokeds.info,
         tmin=evokeds.tmin,
-        comment=avtype
+        comment=f'{subject}{avtype}'
     )
-    save_path_fif = os.path.join(cfg.evoked_dir, f'{avtype}_eeg.fif')
-    evoked.save(save_path_fif, overwrite=True)
     evoked.nave = stacked_data.shape[0]
+    save_path_fif = os.path.join(cfg.evoked_dir, f'{subject}{avtype}_eeg.fif')
+    evoked.save(save_path_fif, overwrite=True)
 
 def combine_rest_data(results):
     """
@@ -100,7 +101,7 @@ def compute_psds(base):
             print(evokeds)
 
             evokeds_data = evokeds.get_data()
-            evokeds_mean_data = np.mean(evokeds_data, axis=0)  # shape: (n_times,)
+            evokeds_mean_data = np.mean(evokeds_data, axis=0)
 
             # Into (1, n_times)
             evokeds_mean_data_reshaped = evokeds_mean_data.reshape(1, -1)
