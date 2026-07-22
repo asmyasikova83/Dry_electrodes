@@ -12,5 +12,3 @@ Dry EEG active / passive + types of sensors Brush Flex / Brush Medium
 4.averaging_pver_headsets_in_subj.py  (f'{subject}_{recording}_eeg.fif') --> averaging_over_subj_in_recording.py (f'{recording}_eeg.fif') --> headset = 0 in compute_psds.py
 
 5.compare_psds.py -- plots spectra of headsets / recording types
-
-## requirements!
