@@ -9,6 +9,7 @@ from scipy import stats
 from statsmodels.stats.multitest import multipletests
 from scipy.stats import ttest_rel
 import config as cfg
+import math
 import warnings
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
@@ -45,6 +46,24 @@ def artifacts_share_into_df(results):
     print(f'Artifacts share saved: {output_file}')
 
     return df
+
+def average_and_save_evoked(evokeds, subj_data, avtype):
+    """
+    Function to calculate average over epochs and save evoked data
+    """
+    # Averaging over epochs (axis = 0)
+    stacked_data = np.stack(subj_data, axis=0)
+    mean_data = np.mean(stacked_data, axis=0)
+
+    evoked = mne.EvokedArray(
+        data=mean_data,
+        info=evokeds.info,
+        tmin=evokeds.tmin,
+        comment=avtype
+    )
+    save_path_fif = os.path.join(cfg.evoked_dir, f'{avtype}_eeg.fif')
+    evoked.save(save_path_fif, overwrite=True)
+    evoked.nave = stacked_data.shape[0]
 
 def combine_rest_data(results):
     """
@@ -111,6 +130,22 @@ def compute_psds(base):
             continue
 
     return psds
+
+def detect_artifacts_diff(epochs, diff_threshold):
+    """
+    Обнаружение артефактов по разности между соседними отсчётами.
+    """
+    data = epochs.get_data(copy=True)
+    n_epochs, n_channels, n_times = data.shape
+
+    max_diffs = np.zeros(n_epochs)
+    for i in range(n_epochs):
+        epoch_data = data[i]
+        diffs = np.diff(epoch_data, axis=1) # (n_channels, n_times-1)
+        max_diff = np.max(np.abs(diffs))
+        max_diffs[i] = max_diff
+    bad_epochs = max_diffs > diff_threshold
+    return bad_epochs, max_diffs
 
 def detect_artifacts_threshold(epochs, threshold):
     """
@@ -231,23 +266,6 @@ def plot_trend_detection(epochs, epoch_idx, channel_idx=0):
     plt.grid(True)
     plt.show()
 
-
-def detect_artifacts_diff(epochs, diff_threshold):
-    """
-    Обнаружение артефактов по разности между соседними отсчётами.
-    """
-    data = epochs.get_data(copy=True)
-    n_epochs, n_channels, n_times = data.shape
-
-    max_diffs = np.zeros(n_epochs)
-    for i in range(n_epochs):
-        epoch_data = data[i]
-        diffs = np.diff(epoch_data, axis=1) # (n_channels, n_times-1)
-        max_diff = np.max(np.abs(diffs))
-        max_diffs[i] = max_diff
-    bad_epochs = max_diffs > diff_threshold
-    return bad_epochs, max_diffs
-
 def plot_share_artifacts(df, aggtype, mapping, base, rest):
     """
     Plots artifact share in % over recordings/headset type
@@ -356,8 +374,8 @@ def plot_share_artifacts(df, aggtype, mapping, base, rest):
             capsize=5,
             linewidth=1
         )
-    if aggtype == 'Headset' and rest == 0:
-        bars = ax.bar(
+    if aggtype == 'Headset' and rest != 1:
+            bars = ax.bar(
                 range(len(ordered_df)),
                 ordered_df['mean_artifacts'],
                 yerr=ordered_df['sem_artifacts'],
@@ -367,18 +385,30 @@ def plot_share_artifacts(df, aggtype, mapping, base, rest):
                 capsize=5,
                 linewidth=1
         )
-    if rest == 0:
+    if rest != 1:
         for bar, mean, sem in zip(bars, ordered_df['mean_artifacts'], ordered_df['sem_artifacts']):
-            ax.text(
+            if not math.isnan(sem):
+                ax.text(
                 bar.get_x() + bar.get_width() / 2,
-                mean + grouped_by['sem_artifacts'].max() * 0.05,
+                mean + grouped_by['sem_artifacts'].mean() + grouped_by['sem_artifacts'].max() * 0.05,
                 f'{mean:.1f}%',
                 ha='center',
                 va='bottom',
                 fontsize=20,
                 fontweight='bold',
                 color='darkblue'
-            )
+                )
+            else:
+                ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                mean,
+                f'{mean:.1f}%',
+                ha='center',
+                va='bottom',
+                fontsize=20,
+                fontweight='bold',
+                color='darkblue'
+                )
 
     ax.set_ylim(0, 100)
 
